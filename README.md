@@ -114,6 +114,15 @@ cp .env.example .env
 Откройте `.env` и задайте минимум LLM-провайдера (см. таблицу переменных ниже) — остальные
 значения по умолчанию уже согласованы между сервисами и обычно трогать их не нужно.
 
+Каталог `keycloak/certs/` в `.gitignore` (там лежит приватный ключ), поэтому в свежем клоне
+он пустой — сгенерируйте самоподписанный TLS-сертификат для Keycloak перед первым запуском:
+
+```bash
+openssl req -x509 -newkey rsa:2048 -nodes -keyout keycloak/certs/tls.key \
+  -out keycloak/certs/tls.crt -days 3650 -subj "/CN=localhost" \
+  -addext "subjectAltName=DNS:localhost,DNS:keycloak,IP:127.0.0.1"
+```
+
 ```bash
 docker compose up -d --build
 docker compose ps   # дождаться healthy у redis/mongo/postgres/keycloak/invest-server/mcp-invest
@@ -374,6 +383,10 @@ docker-compose.yml         — весь стенд целиком
 
 ## Troubleshooting
 
+- **`keycloak` падает при `docker compose up` с ошибкой `Key material not provided to
+  setup HTTPS` / `/opt/keycloak/certs/tls.crt`.** Сертификат не сгенерирован — `keycloak/certs/`
+  в `.gitignore` и в свежем клоне пуст. См. команду `openssl` в
+  [Быстром запуске](#быстрый-запуск).
 - **Браузер показывает предупреждение про сертификат на `localhost:8443`.** Ожидаемо —
   Keycloak поднят с самоподписанным TLS-сертификатом (нужен LibreChat: его OIDC-библиотека
   жёстко отклоняет `http://`-issuer). Один раз нажать «Advanced → Proceed» — дальше браузер
