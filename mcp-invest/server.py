@@ -1,4 +1,4 @@
-"""Эмуляция invest-alfadirect-mcp-server: MCP-сервер с read-тулами по инвестиционному профилю клиента.
+"""Эмуляция invest-mcp-server: MCP-сервер с read-тулами по инвестиционному профилю клиента.
 
 Каждый вызов требует валидный Bearer-токен Keycloak (проверяется через `auth.py`).
 Два режима (`MCP_INVEST_AUTH_MODE`):

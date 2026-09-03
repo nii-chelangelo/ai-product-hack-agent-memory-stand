@@ -23,7 +23,7 @@ INSTRUMENTS = [
         "price": 890.00, "currency": "RUB", "nominal": 1000.0, "coupon_rate": 9.8, "maturity": "2038-05-19",
     },
     {
-        "isin": "RU000A103X66", "ticker": "AFBB-01", "name": "АльфаБанк Б1P-01", "type": "bond", "sector": "Финансы", "market": "MOEX",
+        "isin": "RU000A103X66", "ticker": "IBNK-01", "name": "ИнвестБанк Б1P-01", "type": "bond", "sector": "Финансы", "market": "MOEX",
         "price": 1005.00, "currency": "RUB", "nominal": 1000.0, "coupon_rate": 11.5, "maturity": "2027-03-10",
     },
     {
