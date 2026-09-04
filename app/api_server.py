@@ -20,6 +20,7 @@ import uuid
 import jwt
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from langfuse import get_client, propagate_attributes
 from jwt import PyJWKClient
 from pydantic import BaseModel
 
@@ -345,15 +346,25 @@ async def chat_completions(
     # в LibreChat начинало бы новую сессию памяти, и рабочая память не накапливалась бы в диалоге.
     session_id = body.session_id or x_conversation_id or str(uuid.uuid4())[:8]
 
-    if query.strip().lower() == _FINALIZE_COMMAND:
-        # Ручная финализация текущей сессии прямо из чата — то же самое, что curl на
-        # POST /v1/sessions/{id}/finalize, но доступно и тем, у кого нет доступа к терминалу
-        # (LibreChat не даёт кастомных кнопок для custom endpoint).
-        state = await finalize_session(user_id, session_id)
-        final_report = _finalize_reply(state)
-    else:
-        result = await run_research(user_id, session_id, query, auth_mode=body.auth_mode)
-        final_report = result["final_report"]
+    with get_client().start_as_current_observation(
+        as_type="agent", name="agent.request", input={"query": query}
+    ) as observation:
+        with propagate_attributes(
+            trace_name="agent.request",
+            user_id=user_id,
+            session_id=session_id,
+            metadata={"auth_mode": body.auth_mode},
+        ):
+            if query.strip().lower() == _FINALIZE_COMMAND:
+                # Ручная финализация текущей сессии прямо из чата — то же самое, что curl на
+                # POST /v1/sessions/{id}/finalize, но доступно и тем, у кого нет доступа к терминалу
+                # (LibreChat не даёт кастомных кнопок для custom endpoint).
+                state = await finalize_session(user_id, session_id)
+                final_report = _finalize_reply(state)
+            else:
+                result = await run_research(user_id, session_id, query, auth_mode=body.auth_mode)
+                final_report = result["final_report"]
+        observation.update(output={"response": final_report})
 
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     created = int(time.time())
@@ -391,7 +402,19 @@ async def finalize(session_id: str, authorization: str | None = Header(default=N
     и "проверкой на жертве" ничего не осядет в долговременной памяти.
     """
     user_id = _resolve_user(authorization)
-    state = await finalize_session(user_id, session_id)
+    with get_client().start_as_current_observation(
+        as_type="chain", name="memory.finalize", input={"session_id": session_id}
+    ) as observation:
+        with propagate_attributes(
+            trace_name="memory.finalize", user_id=user_id, session_id=session_id
+        ):
+            state = await finalize_session(user_id, session_id)
+        observation.update(
+            output={
+                "episode_count": len(state.get("episodes") or []),
+                "fact_count": len(state.get("semantic_facts") or []),
+            }
+        )
     return {
         "episodes": state.get("episodes"),
         "facts": state.get("semantic_facts"),

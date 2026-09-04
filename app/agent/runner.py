@@ -4,6 +4,7 @@ import time
 from typing import Any
 
 import httpx
+from langfuse import get_client
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -198,7 +199,16 @@ async def run_research(
     max_steps = max(settings.max_react_tool_calls, 1)
     final_text = ""
     for _ in range(max_steps):
-        response: AIMessage = await _model(settings, bind_tools=tools).ainvoke(messages)
+        with get_client().start_as_current_observation(
+            as_type="generation",
+            name="agent.llm",
+            model=settings.research_model,
+            input={"messages": [str(message.content) for message in messages]},
+        ) as generation:
+            response: AIMessage = await _model(settings, bind_tools=tools).ainvoke(messages)
+            generation.update(
+                output={"content": str(response.content or ""), "tool_calls": response.tool_calls}
+            )
         messages.append(response)
         if not response.tool_calls:
             final_text = str(response.content or "").strip()
@@ -212,15 +222,27 @@ async def run_research(
                 if call["name"] in CUS_SCOPED_TOOLS and not args.get("cus"):
                     args["cus"] = user_id
                 try:
-                    result = await tool.ainvoke(args)
+                    with get_client().start_as_current_observation(
+                        as_type="tool", name=call["name"], input=args
+                    ) as tool_observation:
+                        result = await tool.ainvoke(args)
+                        tool_observation.update(output=str(result))
                 except Exception as exc:
                     result = f"Ошибка вызова тула: {exc}"
             messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
 
     if not final_text:
-        wrap_up = await _model(settings).ainvoke(
-            messages + [HumanMessage(content="Дай финальный ответ по уже собранным данным, без вызова тулов.")]
-        )
+        wrap_up_messages = messages + [
+            HumanMessage(content="Дай финальный ответ по уже собранным данным, без вызова тулов.")
+        ]
+        with get_client().start_as_current_observation(
+            as_type="generation",
+            name="agent.llm.finalize_response",
+            model=settings.research_model,
+            input={"messages": [str(message.content) for message in wrap_up_messages]},
+        ) as generation:
+            wrap_up = await _model(settings).ainvoke(wrap_up_messages)
+            generation.update(output={"content": str(wrap_up.content or "")})
         final_text = str(wrap_up.content or "").strip()
 
     if not final_text:
