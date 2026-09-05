@@ -1,16 +1,20 @@
 """Оркестратор памяти: финализация сессии."""
 
+import logging
 from typing import TypedDict
 
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END, START, StateGraph
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from app.config import get_settings
 from app.memory.models import AgentPolicyMemory, EpisodicMemory, SemanticMemory
 from app.memory.store import MemoryStore
 from app.orchestrator import prompts
+
+
+logger = logging.getLogger(__name__)
 
 
 class EpisodeItem(BaseModel):
@@ -52,6 +56,17 @@ def _model():
     return init_chat_model(settings.summarization_model, **kwargs)
 
 
+async def _invoke_structured(model, prompt: str):
+    """Повторить один раз только ответ, не прошедший Pydantic-валидацию."""
+    for attempt in range(2):
+        try:
+            return await model.ainvoke([HumanMessage(content=prompt)])
+        except ValidationError:
+            if attempt:
+                raise
+            logger.warning("Structured LLM response was invalid; retrying once")
+
+
 async def load_working(state: OrchestratorState) -> dict:
     store = MemoryStore()
     wm = store.get_working(state["user_id"], state["session_id"])
@@ -73,7 +88,7 @@ async def extract_episodes(state: OrchestratorState) -> dict:
         user_id=state["user_id"],
         session_id=state["session_id"],
     )
-    result: EpisodesList = await model.ainvoke([HumanMessage(content=prompt)])
+    result: EpisodesList = await _invoke_structured(model, prompt)
     episodes = [{"summary": e.summary} for e in result.episodes]
     if not episodes and state["session_summary"]:
         episodes = [{"summary": state["session_summary"]}]
@@ -84,7 +99,7 @@ async def extract_semantics(state: OrchestratorState) -> dict:
     model = _model().with_structured_output(SemanticFactsList)
     ep_text = "\n".join(f"- {e['summary']}" for e in state["episodes"])
     prompt = prompts.EXTRACT_SEMANTICS.format(episodes=ep_text)
-    result: SemanticFactsList = await model.ainvoke([HumanMessage(content=prompt)])
+    result: SemanticFactsList = await _invoke_structured(model, prompt)
     return {"semantic_facts": [f.model_dump() for f in result.facts]}
 
 
