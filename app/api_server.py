@@ -241,6 +241,41 @@ def healthz() -> dict:
     return {"status": "ok"}
 
 
+@app.get("/v1/debug/memory/{session_id}")
+def debug_memory_snapshot(session_id: str, authorization: str | None = Header(default=None)) -> dict:
+    """Read-only memory view for a headless PoC run owned by the API-key user."""
+    user_id = _resolve_user(authorization)
+    user_semantics = [
+        memory
+        for memory in _mongo.semantic.list_for_context(
+            user_id, limit=_settings.max_semantic_memories
+        )
+        if memory.scope != "global"
+    ]
+    return {
+        "user_id": user_id,
+        "session_id": session_id,
+        "working_memory": _working.get(user_id, session_id).model_dump(mode="json"),
+        "dialog_sessions": [
+            dialog.model_dump(mode="json")
+            for dialog in _mongo.dialog.list_for_user(
+                user_id, limit=_settings.max_dialog_sessions
+            )
+        ],
+        "episodic_memories": [
+            episode.model_dump(mode="json")
+            for episode in _mongo.episodic.list_for_user(
+                user_id, limit=_settings.max_episodic_memories
+            )
+        ],
+        "semantic_memories": [memory.model_dump(mode="json") for memory in user_semantics],
+        "agent_policies": [
+            policy.model_dump(mode="json")
+            for policy in _mongo.agent_policy.list_all(limit=_settings.max_semantic_memories)
+        ],
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 def account_page(request: Request) -> str:
     identity = _current_identity(request)
