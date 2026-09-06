@@ -113,3 +113,22 @@ class MemoryStore:
 
     def clear_working(self, user_id: str, session_id: str) -> None:
         self.working.clear(user_id, session_id)
+
+    def reset(self, user_id: str, *, include_shared: bool = True) -> dict[str, int]:
+        """Вернуть память в состояние чистого старта — для воспроизводимых прогонов тестов.
+
+        Чистит всю память пользователя: рабочую во всех его сессиях и долговременную. Общие
+        слои (факты со скоупом global и политика агента) не привязаны к пользователю и видны
+        всем клиентам, поэтому без них «чистый старт» был бы неполным — но чистятся они для
+        всех сразу, отсюда отдельный флаг.
+        """
+        removed = {
+            "working_memory": self.working.clear_user(user_id),
+            "dialog_sessions": self.mongo.dialog.delete_for_user(user_id),
+            "episodic_memories": self.mongo.episodic.delete_for_user(user_id),
+            "semantic_memories": self.mongo.semantic.delete_for_user(user_id),
+        }
+        if include_shared:
+            removed["global_facts"] = self.mongo.semantic.delete_global()
+            removed["agent_policies"] = self.mongo.agent_policy.delete_all()
+        return removed

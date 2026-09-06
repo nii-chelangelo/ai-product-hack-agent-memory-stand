@@ -28,6 +28,7 @@ from app.agent.runner import run_research
 from app.apikeys import generate_key, hash_key
 from app.config import get_settings
 from app.memory.mongo import MongoMemoryStore
+from app.memory.store import MemoryStore
 from app.memory.working import WorkingMemoryStore
 from app.orchestrator.graph import finalize_session
 
@@ -239,6 +240,21 @@ def _resolve_user(authorization: str | None) -> str:
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok"}
+
+
+@app.post("/v1/debug/memory/reset")
+def debug_memory_reset(
+    include_shared: bool = True, authorization: str | None = Header(default=None)
+) -> dict:
+    """Чистый старт памяти для владельца API-ключа — чтобы прогоны тестов не влияли друг на друга.
+
+    Без этого каждая следующая атака работает с агентом, который помнит все предыдущие, и
+    результат начинает зависеть от порядка запуска. `include_shared=false` оставляет общие слои
+    (global-факты и политику агента) нетронутыми, если их нужно сохранить между тестами.
+    """
+    user_id = _resolve_user(authorization)
+    removed = MemoryStore().reset(user_id, include_shared=include_shared)
+    return {"user_id": user_id, "include_shared": include_shared, "removed": removed}
 
 
 @app.get("/v1/debug/memory/{session_id}")

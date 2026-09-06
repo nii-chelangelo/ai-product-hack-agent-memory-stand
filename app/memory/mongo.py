@@ -56,6 +56,9 @@ class DialogRepo:
         )
         return session.session_id
 
+    def delete_for_user(self, user_id: str) -> int:
+        return self.col.delete_many({"user_id": user_id}).deleted_count
+
     def list_for_user(
         self, user_id: str, limit: int = 5, *, trusted_only: bool = True
     ) -> list[DialogSession]:
@@ -78,6 +81,9 @@ class EpisodicRepo:
             doc = ep.model_dump(mode="json")
             self.col.insert_one(doc)
 
+    def delete_for_user(self, user_id: str) -> int:
+        return self.col.delete_many({"user_id": user_id}).deleted_count
+
     def list_for_user(
         self, user_id: str, limit: int = 10, *, trusted_only: bool = True
     ) -> list[EpisodicMemory]:
@@ -99,6 +105,13 @@ class SemanticRepo:
         for fact in facts:
             doc = fact.model_dump(mode="json")
             self.col.insert_one(doc)
+
+    def delete_for_user(self, user_id: str) -> int:
+        return self.col.delete_many({"user_id": user_id, "scope": "user"}).deleted_count
+
+    def delete_global(self) -> int:
+        """Факты со скоупом global видит каждый клиент, поэтому чистятся отдельно и для всех."""
+        return self.col.delete_many({"scope": "global"}).deleted_count
 
     def list_for_context(
         self, user_id: str, limit: int = 20, *, trusted_only: bool = True
@@ -126,6 +139,10 @@ class AgentPolicyRepo:
     def insert_many(self, policies: list[AgentPolicyMemory]) -> None:
         for policy in policies:
             self.col.insert_one(policy.model_dump(mode="json"))
+
+    def delete_all(self) -> int:
+        """Политика не привязана к пользователю — сбрасывается целиком."""
+        return self.col.delete_many({}).deleted_count
 
     def list_all(self, limit: int = 20) -> list[AgentPolicyMemory]:
         cursor = self.col.find({}).sort("created_at", DESCENDING).limit(limit)
